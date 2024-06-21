@@ -1,1 +1,4 @@
-The script for metagenomics analysis for the C. albicans lipases project 
+The scripts for metagenomics analysis for the C. albicans lipases project 
+Genera level analysis: diversity kneaddata_diversity.R, kneaddata_diversity_vis.R
+Genera level analysis: sig. diff genera significant_genera.R, kneaddata_heatmap_for_genus.R
+Pathway analysis: sig. diff pathways diamond_pathway.R, diamond_pathway_vis.R
