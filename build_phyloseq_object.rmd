@@ -1,0 +1,123 @@
+# build pyloseq object 
+
+```{r setup, include=FALSE}
+# mice project environment mice_project_r 
+knitr::opts_chunk$set(echo = TRUE)
+library(fossil)
+library(tidyverse)
+library(phyloseq)
+
+
+```
+# metatable 
+```{r}
+
+metatable <- read_tsv("~/Documents/202210_mouse_project/04_diversity/metatable_paired.tsv")
+
+```
+
+# clean the mpa format : only select species 
+```{r}
+
+input_mpa <- "/data/202210_mouse_project/Result/kneaddata_second_time_kraken2/input/kneaddata_custom_species_mpa.tsv"
+
+
+select_species <- function(mpa_profile = NA){
+  
+  mpa_profile_species <- mpa_profile %>% 
+    filter(grepl("\\|s__", Classification))
+  
+  return(mpa_profile_species)
+  
+} 
+
+
+clean_mpa <- function(input_mpa = NA){
+  
+  mpa_single <- read_tsv(input_mpa)
+  # change the colnames 
+  colnames(mpa_single)[1] <- "Classification"
+  colnames(mpa_single) <- str_remove_all(colnames(mpa_single), "_report_bracken.report")
+  mpa_final <- select_species(mpa_single)
+
+  return(mpa_final)
+  
+  
+}
+
+mpa_profile_all <- clean_mpa(input_mpa = input_mpa)
+
+colnames(mpa_profile_all)[2:158] <- str_sub(colnames(mpa_profile_all)[2:158], end = -3)
+
+
+```
+
+
+# build phyloseq object
+```{r}
+
+
+fill_in_NA_taxon <- function(na_taxa = NA){
+  
+  na_taxa$Kingdom <- str_extract(na_taxa$full_clade, "k__.[^\\|]*\\|") %>% str_remove_all("\\|")
+  na_taxa$Phylum <- str_extract(na_taxa$full_clade, "\\|p__.[^\\|]*\\|") %>% str_remove_all("\\|")
+  na_taxa$Class <- str_extract(na_taxa$full_clade, "\\|c__.[^\\|]*\\|") %>% str_remove_all("\\|")
+  na_taxa$Order <- str_extract(na_taxa$full_clade, "\\|o__.[^\\|]*\\|") %>% str_remove_all("\\|")
+  na_taxa$Family <- str_extract(na_taxa$full_clade, "\\|f__.[^\\|]*\\|") %>% str_remove_all("\\|")
+  na_taxa$Genus <- str_extract(na_taxa$full_clade, "\\|g__.[^\\|]*\\|") %>% str_remove_all("\\|")
+  na_taxa$Species <- str_extract(na_taxa$full_clade, "\\|s__.[^\\|]*") %>% str_remove_all("\\|")
+  return(na_taxa)
+  
+}
+
+# some have 7 kingdom and can be separted into 
+taxonomy_table_part1 <- mpa_profile_all %>% 
+  mutate(full_clade = Classification) %>% 
+  filter(grepl("Bacteria|k__Archaea", Classification)) %>% 
+  mutate(Domain = "Prokaryote") %>% 
+  separate(Classification, c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species"), sep = "\\|")
+taxonomy_table_part1_tax_na <- taxonomy_table_part1 %>% 
+    dplyr::filter(is.na(Species)) 
+taxonomy_table_part1_tax_na_modified <- fill_in_NA_taxon(na_taxa = taxonomy_table_part1_tax_na)
+taxonomy_table_part1_nona <-  taxonomy_table_part1 %>% 
+    dplyr::filter(!is.na(Species)) 
+
+taxonomy_table_part1_final <- rbind(taxonomy_table_part1_nona, taxonomy_table_part1_tax_na_modified) %>% 
+  relocate(Domain, .before = Kingdom)
+
+
+# some taxa has 8 columns 
+taxonomy_table_part2 <- mpa_profile_all %>% 
+  mutate(full_clade = Classification) %>% 
+  filter(!grepl("Bacteria|k__Archaea", Classification)) %>% 
+  separate(Classification, c("Domain", "Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species"), sep = "\\|") 
+taxonomy_table_part2_tax_na <- taxonomy_table_part2 %>% 
+    dplyr::filter(is.na(Species)) 
+taxonomy_table_part2_tax_na_modified <- fill_in_NA_taxon(na_taxa = taxonomy_table_part2_tax_na)
+taxonomy_table_part2_nona <-  taxonomy_table_part2 %>% 
+    dplyr::filter(!is.na(Species)) 
+
+taxonomy_table_part2_final <- rbind(taxonomy_table_part2_nona, taxonomy_table_part2_tax_na_modified)
+
+# combine them together 
+
+taxonomy_table_final <- rbind(taxonomy_table_part1_final, taxonomy_table_part2_final)
+
+# phyloseq - taxonomy 
+
+phyloseq_otu_prepare <- taxonomy_table_final %>% select(-Domain, -Kingdom, -Phylum, -Class, -Order, -Family, -Genus, - Species) %>% 
+  column_to_rownames(., var = "full_clade") %>% 
+  select(metatable$sample)
+phyloseq_taxonomy_prepare <- taxonomy_table_final %>% select(Domain, Kingdom, Phylum, Class, Order, Family, Genus, Species, full_clade) %>% 
+  column_to_rownames(., var = "full_clade") 
+META <- sample_data(metatable %>% column_to_rownames(., var = "sample"))
+TAX <- tax_table(as.matrix(phyloseq_taxonomy_prepare))
+OTU <- otu_table(phyloseq_otu_prepare, taxa_are_rows=TRUE) # see here the import https://joey711.github.io/phyloseq/import-data.html 
+physeq_object <- phyloseq(OTU, TAX, META) # , 
+
+physeq_object
+
+save.image("/data/202210_mouse_project/Result/kneaddata_second_time_kraken2/output/taxa_ditribution/kingdom_distribution_all_taxa.RData")
+```
+
+
